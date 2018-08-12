@@ -19,4 +19,5 @@ You have to install pyTelegramBotAPI module
 	1. `default_path = 'YOUR_FOLDER_NAME'`
 1. Save and then close `config.py`
 ### Run the bot
+Put your files into your folder
 Just run the `bot.py` file
