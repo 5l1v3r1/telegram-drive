@@ -6,7 +6,7 @@ import telebot
 from telebot import types
 
 bot = telebot.TeleBot(config.token)
-# Path to our folder and files
+# Path to your folder
 path = './{}/'.format(config.default_path)
 
 # Answering to /start and /help commands
