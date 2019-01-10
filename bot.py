@@ -1,142 +1,78 @@
-# Import file with main variables
 import config
-
 import os
 import telebot
 from telebot import types
 
 bot = telebot.TeleBot(config.token)
 # Path to your folder
-path = './{}/'.format(config.default_path)
+path = '.\{}'.format(config.default_path)
 
-# Answering to /start and /help commands
+
+def check_id(message):
+    return message.from_user.id in config.accepted_users
+
+
+def generate_keyboard():
+    files = types.InlineKeyboardMarkup()
+    if path != '.\{}'.format(config.default_path):
+        files.add(types.InlineKeyboardButton(text='Back', callback_data='Back'))
+    for file in os.listdir(path):
+        if os.path.isdir(os.path.join(path, file)):
+            files.add(types.InlineKeyboardButton(text=file+'/', callback_data=file))
+        else:
+            files.add(types.InlineKeyboardButton(text=file, callback_data=file))
+    files.add(types.InlineKeyboardButton(text='Done', callback_data='Done'))
+    return files
+
+
 @bot.message_handler(commands=['start', 'help'])
-def start_menu(message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    # Verifying user. If there is no such user in array of accepted users, return
-    if not checkID(message):
+def start(message):
+    if check_id(message):
+        bot.send_message(message.chat.id, config.help_text,
+                         parse_mode='Markdown')
+    else:
         bot.send_message(message.chat.id, config.errors['no_access'])
-        return
 
-    bot.send_message(message.chat.id, config.help_text, parse_mode='Markdown')
 
-# Send list of files
 @bot.message_handler(commands=['file_list'])
-def request_file_list(message):
-    # Verifying user
-    if not checkID(message):
+def show_files(message):
+    if not check_id(message):
         bot.send_message(message.chat.id, config.errors['no_access'])
         return
 
-    # Creating keyboard markup
-    # Adding buttons with names of files
-    files_list = types.ReplyKeyboardMarkup()
-    for f in os.listdir(path):
-        list_item = types.KeyboardButton(text=f)
-        files_list.add(list_item)
-    # Button "Done"
-    # We need this button to be able to download more than one file
-    files_list.add('Done')
+    bot.send_message(
+        message.chat.id, 'Choose one of the files or directories', reply_markup=generate_keyboard())
 
-    bot.send_message(message.chat.id, 'Choose one of the files or directories', reply_markup=files_list)
 
-# Reset all
-# Set path to default and removing keyboard
-@bot.message_handler(func=lambda message: message.text == 'Done')
-def reset_all(message):
+@bot.callback_query_handler(func=lambda call: call.data in os.listdir(path) or call.data in ['Done', 'Back'])
+def send_file(call):
     global path
-    path = './{}/'.format(config.default_path)
-    remove_list = types.ReplyKeyboardRemove()
-    bot.send_message(message.chat.id, 'Nice', reply_markup=remove_list)
+    new_path = os.path.join(path, call.data)
 
-# If user sends file name (or button is pressed)
-@bot.message_handler(content_types=['text'], func=lambda message: message.text in os.listdir(path))
-def send_file(message):
-    global path
-    # Verifying user
-    if not checkID(message):
-        bot.send_message(message.chat.id, config.errors['no_access'])
-        return
+    if call.data == 'Done':
+        bot.delete_message(call.from_user.id, call.message.message_id)
+        bot.send_message(call.from_user.id, 'Nice!')
+        path = '.\{}'.format(config.default_path)
 
-    # Creating new path with text of message
-    file_path = path + message.text
+    elif call.data == 'Back':
+        path = os.path.split(path)[0]
+        bot.delete_message(call.from_user.id, call.message.message_id)
+        bot.send_message(
+            call.from_user.id, 'Choose one of the files or directories', reply_markup=generate_keyboard())
 
-    # Checking if it is a folder
-    if os.path.isdir(path + message.text):
-        # Adding folder name to path
-        path += message.text
-        # Creating new keyboard (because we changed path)
-        files_list = types.ReplyKeyboardMarkup()
-        # Button "Back"
-        files_list.add('↑ Back')
-        for f in os.listdir(path):
-            list_item = types.KeyboardButton(text=f)
-            files_list.add(list_item)
-        files_list.add('Done')
+    elif os.path.isdir(new_path):
+        path = new_path
+        bot.delete_message(call.from_user.id, call.message.message_id)
+        bot.send_message(
+            call.from_user.id, 'Choose one of the files or directories', reply_markup=generate_keyboard())
 
-        bot.send_message(message.chat.id, 'Choose one of the files or directories', reply_markup=files_list)
-        # We have to add / in the end of path
-        path += '/'
-        return
+    elif os.stat(new_path).st_size == 0:
+        bot.send_message(call.from_user.id, config.errors['empty_file'])
 
-    # If it is a file:
-    # We can't send empty files in Telegram, so we have to check the file
-    if is_empty(file_path):
-        bot.send_message(message.chat.id, config.errors['empty_file'])
-        return
-
-    # Open and send the file
-    requested_file = open(file_path, 'rb')
-    bot.send_document(message.chat.id, requested_file)
-
-# Exit a folder
-@bot.message_handler(func=lambda message: message.text == '↑ Back')
-def prevoius_folder(message):
-    global path
-    splited_path = path.split('/')
-
-    if path != './{}/'.format(config.default_path):
-        for elem in splited_path:
-            if elem == '':
-                splited_path.remove(elem)
-        # Removing last folder name from path
-        path = ''
-        for i in range(len(splited_path) - 1):
-            path += splited_path[i]
-            path += '/'
-
-        # Creating new keyboard
-        files_list = types.ReplyKeyboardMarkup()
-        if path != './{}/'.format(config.default_path):
-            files_list.add('↑ Back')
-
-        for f in os.listdir(path):
-            list_item = types.KeyboardButton(text=f)
-            files_list.add(list_item)
-        files_list.add('Done')
-
-        bot.send_message(message.chat.id, 'Choose one of the files or directories', reply_markup=files_list)
     else:
-        remove_list = types.ReplyKeyboardRemove()
-        bot.send_message(message.chat.id, 'Oops', reply_markup=remove_list)
+        with open(new_path, 'rb') as file:
+            bot.send_document(call.from_user.id, file)
 
-# Answering to text
-@bot.message_handler(content_types=['text'])
-def plain_text(message):
-    bot.send_message(message.chat.id, config.errors['plain_text'])
-
-# Functions
-def is_empty(filename):
-    if os.stat(filename).st_size == 0:
-        return True
-    else:
-        return False
-
-def checkID(message):
-    if message.from_user.id not in config.accepted_users:
-        return False
-    else:
-        return True
 
 if __name__ == '__main__':
     bot.polling(none_stop=True)
